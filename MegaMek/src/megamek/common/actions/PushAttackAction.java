@@ -131,7 +131,98 @@ public class PushAttackAction extends DisplacementAttackAction {
         }
         ToHitData toHit = null;
 
-        // can't target yourself
+        //Check for impossible actions
+        ToHitData check = checkAttack(game, target, ae, te, attackerElevation, targetElevation, targetInBuilding, bldg);
+        if (check != null) {
+        	return check;
+        }
+        
+        // Set the base BTH
+        int base = ae.getCrew().getPiloting() - 1;
+
+        toHit = new ToHitData(base, "base");
+
+        // attacker movement
+        toHit.append(Compute.getAttackerMovementModifier(game, attackerId));
+
+        // target movement
+        toHit.append(Compute.getTargetMovementModifier(game, targetId));
+
+        // attacker terrain
+        toHit.append(Compute.getAttackerTerrainModifier(game, attackerId));
+
+        // target terrain
+        toHit.append(Compute.getTargetTerrainModifier(game, te, 0, inSameBuilding));
+
+        // damaged or missing actuators
+        if (!ae.hasWorkingSystem(Mech.ACTUATOR_SHOULDER, Mech.LOC_RARM)) {
+            toHit.addModifier(2, "Right Shoulder destroyed");
+        }
+        if (!ae.hasWorkingSystem(Mech.ACTUATOR_SHOULDER, Mech.LOC_LARM)) {
+            toHit.addModifier(2, "Left Shoulder destroyed");
+        }
+
+        // attacker is spotting
+        if (ae.isSpotting()) {
+            toHit.addModifier(+1, "attacker is spotting");
+        }
+
+        // water partial cover?
+        if ((te.height() > 0) && (te.getElevation() == -1)
+                && (targHex.terrainLevel(Terrains.WATER) == te.height())) {
+            toHit.addModifier(3, "target has partial cover");
+        }
+
+        // target immobile
+        toHit.append(Compute.getImmobileMod(te));
+
+        Compute.modifyPhysicalBTHForAdvantages(ae, te, toHit, game);
+
+        //evading
+        if(te.isEvading()) {
+            toHit.addModifier(te.getEvasionBonus(), "target is evading");
+        }
+
+        toHit.append(nightModifiers(game, target, null, ae, false));
+        // side and elevation shouldn't matter
+
+        // If it has a torso-mounted cockpit and two head sensor hits or three
+        // sensor hits...
+        // It gets a =4 penalty for being blind!
+        if (((Mech) ae).getCockpitType() == Mech.COCKPIT_TORSO_MOUNTED) {
+            int sensorHits = ae.getBadCriticals(CriticalSlot.TYPE_SYSTEM,
+                    Mech.SYSTEM_SENSORS, Mech.LOC_HEAD);
+            int sensorHits2 = ae.getBadCriticals(CriticalSlot.TYPE_SYSTEM,
+                    Mech.SYSTEM_SENSORS, Mech.LOC_CT);
+            if ((sensorHits + sensorHits2) == 3) {
+                return new ToHitData(TargetRoll.IMPOSSIBLE,
+                        "Sensors Completely Destroyed for Torso-Mounted Cockpit");
+            } else if (sensorHits == 2) {
+                toHit.addModifier(4,
+                        "Head Sensors Destroyed for Torso-Mounted Cockpit");
+            }
+        }
+
+        //Attacking Weight Class Modifier.
+        if ( game.getOptions().booleanOption("tacops_attack_physical_psr") ) {
+            if ( ae.getWeightClass() == EntityWeightClass.WEIGHT_LIGHT ) {
+                toHit.addModifier(-2, "Weight Class Attack Modifier");
+            }else if ( ae.getWeightClass() == EntityWeightClass.WEIGHT_MEDIUM ) {
+                toHit.addModifier(-1, "Weight Class Attack Modifier");
+            }
+        }
+
+        if (((Mech)ae).hasIndustrialTSM()) {
+            toHit.addModifier(2, "industrial TSM");
+        }
+
+        // done!
+        return toHit;
+    }
+
+	private static ToHitData checkAttack(IGame game, Targetable target, final Entity ae, Entity te,
+			final int attackerElevation, final int targetElevation, final boolean targetInBuilding, Building bldg) {
+		// can't target yourself
         if (ae.equals(te)) {
             return new ToHitData(TargetRoll.IMPOSSIBLE,
                     "You can't target yourself");
@@ -262,88 +353,8 @@ public class PushAttackAction extends DisplacementAttackAction {
                 || (target.getTargetType() == Targetable.TYPE_HEX_CLEAR)
                 || (target.getTargetType() == Targetable.TYPE_HEX_IGNITE)) {
             return new ToHitData(TargetRoll.IMPOSSIBLE, "Invalid attack");
-        }
-
-        // Set the base BTH
-        int base = ae.getCrew().getPiloting() - 1;
-
-        toHit = new ToHitData(base, "base");
-
-        // attacker movement
-        toHit.append(Compute.getAttackerMovementModifier(game, attackerId));
-
-        // target movement
-        toHit.append(Compute.getTargetMovementModifier(game, targetId));
-
-        // attacker terrain
-        toHit.append(Compute.getAttackerTerrainModifier(game, attackerId));
-
-        // target terrain
-        toHit.append(Compute.getTargetTerrainModifier(game, te, 0, inSameBuilding));
-
-        // damaged or missing actuators
-        if (!ae.hasWorkingSystem(Mech.ACTUATOR_SHOULDER, Mech.LOC_RARM)) {
-            toHit.addModifier(2, "Right Shoulder destroyed");
-        }
-        if (!ae.hasWorkingSystem(Mech.ACTUATOR_SHOULDER, Mech.LOC_LARM)) {
-            toHit.addModifier(2, "Left Shoulder destroyed");
-        }
-
-        // attacker is spotting
-        if (ae.isSpotting()) {
-            toHit.addModifier(+1, "attacker is spotting");
-        }
-
-        // water partial cover?
-        if ((te.height() > 0) && (te.getElevation() == -1)
-                && (targHex.terrainLevel(Terrains.WATER) == te.height())) {
-            toHit.addModifier(3, "target has partial cover");
-        }
-
-        // target immobile
-        toHit.append(Compute.getImmobileMod(te));
-
-        Compute.modifyPhysicalBTHForAdvantages(ae, te, toHit, game);
-
-        //evading
-        if(te.isEvading()) {
-            toHit.addModifier(te.getEvasionBonus(), "target is evading");
-        }
-
-        toHit.append(nightModifiers(game, target, null, ae, false));
-        // side and elevation shouldn't matter
-
-        // If it has a torso-mounted cockpit and two head sensor hits or three
-        // sensor hits...
-        // It gets a =4 penalty for being blind!
-        if (((Mech) ae).getCockpitType() == Mech.COCKPIT_TORSO_MOUNTED) {
-            int sensorHits = ae.getBadCriticals(CriticalSlot.TYPE_SYSTEM,
-                    Mech.SYSTEM_SENSORS, Mech.LOC_HEAD);
-            int sensorHits2 = ae.getBadCriticals(CriticalSlot.TYPE_SYSTEM,
-                    Mech.SYSTEM_SENSORS, Mech.LOC_CT);
-            if ((sensorHits + sensorHits2) == 3) {
-                return new ToHitData(TargetRoll.IMPOSSIBLE,
-                        "Sensors Completely Destroyed for Torso-Mounted Cockpit");
-            } else if (sensorHits == 2) {
-                toHit.addModifier(4,
-                        "Head Sensors Destroyed for Torso-Mounted Cockpit");
-            }
-        }
-
-        //Attacking Weight Class Modifier.
-        if ( game.getOptions().booleanOption("tacops_attack_physical_psr") ) {
-            if ( ae.getWeightClass() == EntityWeightClass.WEIGHT_LIGHT ) {
-                toHit.addModifier(-2, "Weight Class Attack Modifier");
-            }else if ( ae.getWeightClass() == EntityWeightClass.WEIGHT_MEDIUM ) {
-                toHit.addModifier(-1, "Weight Class Attack Modifier");
-            }
-        }
-
-        if (((Mech)ae).hasIndustrialTSM()) {
-            toHit.addModifier(2, "industrial TSM");
-        }
-
-        // done!
-        return toHit;
-    }
+        }        
+      	
+        return null;
+	}
 }
